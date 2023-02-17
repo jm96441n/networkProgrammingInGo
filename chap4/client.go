@@ -1,6 +1,7 @@
 package chap4
 
 import (
+	"bufio"
 	"errors"
 	"fmt"
 	"io"
@@ -48,6 +49,31 @@ func (c *Client) Run() error {
 	if err != nil {
 		return fmt.Errorf("failed to dial server at %q: %w", c.addr, err)
 	}
+	defer conn.Close()
+
+	scanner := bufio.NewScanner(conn)
+	scanner.Split(bufio.ScanWords)
+
+	var words []string
+	for scanner.Scan() {
+		msg := scanner.Text()
+		words = append(words, msg)
+		c.logger.Print(msg)
+	}
+	err = scanner.Err()
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (c *Client) RunNoScanner() error {
+	conn, err := net.Dial("tcp", c.addr)
+	if err != nil {
+		return fmt.Errorf("failed to dial server at %q: %w", c.addr, err)
+	}
+	defer conn.Close()
 	buf := make([]byte, 25)
 	results := make([]byte, 0, 0)
 	for {
