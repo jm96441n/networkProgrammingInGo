@@ -1,17 +1,25 @@
 package chap4
 
 import (
-	"crypto/rand"
 	"fmt"
+	"io"
 	"log"
 	"net"
 	"os"
 )
 
+type Monitor struct {
+	logger *log.Logger
+}
+
+func (m Monitor) Write(p []byte) (int, error) {
+	return len(p), m.logger.Output(2, string(p))
+}
+
 type Server struct {
 	addr        string
 	listener    net.Listener
-	logger      *log.Logger
+	monitor     Monitor
 	payloadSize uint
 }
 
@@ -28,7 +36,7 @@ func RunServer() error {
 func NewServer(opts ...serverOpts) (*Server, error) {
 	s := &Server{
 		addr:        "127.0.0.1:3000",
-		logger:      log.New(os.Stdout, "", log.Llongfile),
+		monitor:     Monitor{logger: log.New(os.Stdout, "monitor: ", log.Llongfile)},
 		payloadSize: 1 << 24, // 16 MB
 	}
 	for _, opt := range opts {
@@ -43,13 +51,13 @@ func NewServer(opts ...serverOpts) (*Server, error) {
 	}
 	s.listener = listener
 
-	s.logger.Printf("listening on %q", s.listener.Addr().String())
+	s.monitor.logger.Printf("listening on %q", s.listener.Addr().String())
 	return s, nil
 }
 
-func WithLogger(l *log.Logger) serverOpts {
+func WithLogger(l Monitor) serverOpts {
 	return func(s *Server) error {
-		s.logger = l
+		s.monitor = l
 		return nil
 	}
 }
@@ -69,25 +77,21 @@ func WithPayloadSize(sz uint) serverOpts {
 }
 
 func (s *Server) Run() error {
-	// make a random payload
-	payload := make([]byte, s.payloadSize)
-	_, err := rand.Read(payload)
-	if err != nil {
-		return fmt.Errorf("failed to generate random payload with err: %w", err)
-	}
-	s.logger.Print("created payload")
+	payloads := []string{"hello", "there", "general", "kenobi"}
 	conn, err := s.listener.Accept()
 	if err != nil {
 		return fmt.Errorf("failed to accept listener: %w", err)
 	}
 	defer conn.Close()
+	w := io.MultiWriter(conn, s.monitor)
 
-	s.logger.Print("writing payload")
-	s.logger.Printf("payload: %v", payload)
-	_, err = conn.Write(payload)
-	if err != nil {
-		return fmt.Errorf("failed to write payload: %w", err)
+	for _, p := range payloads {
+		// make a random payload
+		payload := []byte(p)
+		_, err = w.Write(payload)
+		if err != nil {
+			return fmt.Errorf("failed to write payload: %w", err)
+		}
 	}
-	s.logger.Print("wrote payload")
 	return nil
 }

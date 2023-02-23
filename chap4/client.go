@@ -11,8 +11,8 @@ import (
 )
 
 type Client struct {
-	logger *log.Logger
-	addr   string
+	monitor Monitor
+	addr    string
 }
 
 type clientOpt func(*Client)
@@ -23,8 +23,8 @@ func RunClient() error {
 
 func NewClient(opts ...clientOpt) *Client {
 	c := &Client{
-		addr:   "127.0.0.1:3000",
-		logger: log.New(os.Stdout, "", log.Llongfile),
+		addr:    "127.0.0.1:3000",
+		monitor: Monitor{logger: log.New(os.Stdout, "monitor: ", log.Llongfile)},
 	}
 	for _, opt := range opts {
 		opt(c)
@@ -32,9 +32,9 @@ func NewClient(opts ...clientOpt) *Client {
 	return c
 }
 
-func WithClientLogger(l *log.Logger) clientOpt {
+func WithClientLogger(l Monitor) clientOpt {
 	return func(c *Client) {
-		c.logger = l
+		c.monitor = l
 	}
 }
 
@@ -51,14 +51,13 @@ func (c *Client) Run() error {
 	}
 	defer conn.Close()
 
-	scanner := bufio.NewScanner(conn)
+	r := io.TeeReader(conn, c.monitor)
+	scanner := bufio.NewScanner(r)
 	scanner.Split(bufio.ScanWords)
-
 	var words []string
 	for scanner.Scan() {
 		msg := scanner.Text()
 		words = append(words, msg)
-		c.logger.Print(msg)
 	}
 	err = scanner.Err()
 	if err != nil {
@@ -84,10 +83,10 @@ func (c *Client) RunNoScanner() error {
 		if err != nil {
 			return fmt.Errorf("failed to read from conn: %w", err)
 		}
-		c.logger.Print(buf)
+		c.monitor.logger.Print(buf)
 		results = append(results, buf[:n]...)
 
 	}
-	c.logger.Print(results)
+	c.monitor.logger.Print(results)
 	return nil
 }
