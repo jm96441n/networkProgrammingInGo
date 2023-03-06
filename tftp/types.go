@@ -164,7 +164,7 @@ func (d *Data) UnmarshalBinary(p []byte) error {
 	}
 
 	if code != OpData {
-		return errors.New("Invalid data request")
+		return errors.New("invalid data request")
 	}
 
 	// Read first next two bytes from the payload, block size
@@ -183,11 +183,96 @@ type Ack uint16
 
 func (a Ack) MarshalBinary() ([]byte, error) {
 	buf := bytes.NewBuffer([]byte{})
+	buf.Grow(4) // 2 bytes for OpCode, 2 bytes for block number
 
 	err := binary.Write(buf, binary.BigEndian, OpAck)
 	if err != nil {
 		return nil, err
 	}
 
+	err = binary.Write(buf, binary.BigEndian, a) // write the block number
+	if err != nil {
+		return nil, err
+	}
+
 	return buf.Bytes(), nil
+}
+
+func (a *Ack) UnmarshalBinary(p []byte) error {
+	var op OpCode
+
+	err := binary.Read(bytes.NewReader(p[:2]), binary.BigEndian, &op)
+	if err != nil {
+		return err
+	}
+
+	if op != OpAck {
+		return errors.New("invalid ACK")
+	}
+
+	err = binary.Read(bytes.NewReader(p[2:]), binary.BigEndian, a)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+type Err struct {
+	Error   ErrCode
+	Message string
+}
+
+func (e Err) MarshalBinary() ([]byte, error) {
+	buf := bytes.NewBuffer([]byte{})
+	buf.Grow(2 + 2 + len(e.Message) + 1) // 2 bytes for opcode, 2 bytes for errcode, message len, and 1 byte for null terminator
+
+	err := binary.Write(buf, binary.BigEndian, OpErr)
+	if err != nil {
+		return nil, err
+	}
+
+	err = binary.Write(buf, binary.BigEndian, e.Error)
+	if err != nil {
+		return nil, err
+	}
+
+	_, err = buf.WriteString(e.Message)
+	if err != nil {
+		return nil, err
+	}
+
+	err = buf.WriteByte(0)
+	if err != nil {
+		return nil, err
+	}
+
+	return buf.Bytes(), nil
+}
+
+func (e *Err) UnmarshalBinary(p []byte) error {
+	var code OpCode
+
+	err := binary.Read(bytes.NewReader(p[:2]), binary.BigEndian, &code)
+	if err != nil {
+		return err
+	}
+
+	if code != OpErr {
+		return errors.New("invalid Err")
+	}
+
+	err = binary.Read(bytes.NewReader(p[2:4]), binary.BigEndian, &e.Error)
+	if err != nil {
+		return err
+	}
+
+	err = binary.Read(bytes.NewReader(p[4:]), binary.BigEndian, &e.Message)
+	if err != nil {
+		return err
+	}
+
+	e.Message = strings.TrimRight(e.Message, "\x00")
+
+	return nil
 }
