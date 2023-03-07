@@ -94,14 +94,8 @@ func (s Server) handle(addr string, rrq ReadReq) {
 
 	defer func() { _ = conn.Close() }()
 
-	var (
-		ackPkt  Ack
-		errPkt  Err
-		dataPkt = Data{Payload: bytes.NewReader(s.Payload)}
-		buf     = make([]byte, DatagramSize)
-	)
+	dataPkt := Data{Payload: bytes.NewReader(s.Payload)}
 
-NEXTPACKET:
 	for n := DatagramSize; n == DatagramSize; {
 
 		data, err := dataPkt.MarshalBinary()
@@ -109,46 +103,57 @@ NEXTPACKET:
 			log.Error(fmt.Sprintf("[%s] preparing data packet: %v", addr, err))
 			return
 		}
-	RETRY:
-		for i := s.Retries; i > 0; i-- {
-			n, err = conn.Write(data) // send the packet
-			if err != nil {
-				log.Error(fmt.Sprintf("[%s] write: %v", addr, err))
-				return
-			}
-
-			// wait for the client ack
-			_ = conn.SetReadDeadline(time.Now().Add(s.Timeout))
-
-			_, err = conn.Read(buf)
-			if err != nil {
-				var netError net.Error
-				// if we timeout then  retry
-				if errors.As(err, &netError) && netError.Timeout() {
-					continue RETRY
-				}
-
-				log.Error(fmt.Sprintf("[%s] wating for ACK: %v", addr, err))
-				return
-			}
-
-			switch {
-			case ackPkt.UnmarshalBinary(buf) == nil:
-				if uint16(ackPkt) == dataPkt.Block {
-					// received ack, send next packet
-					continue NEXTPACKET
-				}
-			case errPkt.UnmarshalBinary(buf) == nil:
-				log.Warn(fmt.Sprintf("[%s] received error: %v", addr, err))
-				return
-			default:
-				log.Error(fmt.Sprintf("[%s] bad packet", addr))
-
-			}
+		n, err = s.writeWithRetry(addr, conn, data, dataPkt.Block)
+		if err != nil {
+			return
 		}
-		log.Error(fmt.Sprintf("[%s] exhausted retries", addr))
-		return
 
 	}
 	log.Info(fmt.Sprintf("[%s] sent %d blocks", addr, dataPkt.Block))
+}
+
+func (s Server) writeWithRetry(addr string, conn net.Conn, data []byte, block uint16) (int, error) {
+	var (
+		ackPkt Ack
+		errPkt Err
+		buf    = make([]byte, DatagramSize)
+	)
+	for i := s.Retries; i > 0; i-- {
+		n, err := conn.Write(data) // send the packet
+		if err != nil {
+			log.Error(fmt.Sprintf("[%s] write: %v", addr, err))
+			return 0, err
+		}
+
+		// wait for the client ack
+		_ = conn.SetReadDeadline(time.Now().Add(s.Timeout))
+
+		_, err = conn.Read(buf)
+		if err != nil {
+			var netError net.Error
+			// if we timeout then  retry
+			if errors.As(err, &netError) && netError.Timeout() {
+				continue
+			}
+
+			log.Error(fmt.Sprintf("[%s] wating for ACK: %v", addr, err))
+			return 0, err
+		}
+
+		switch {
+		case ackPkt.UnmarshalBinary(buf) == nil:
+			if uint16(ackPkt) == block {
+				// received ack, send next packet
+				return n, nil
+			}
+		case errPkt.UnmarshalBinary(buf) == nil:
+			log.Warn(fmt.Sprintf("[%s] received error: %v", addr, err))
+			return 0, err
+		default:
+			log.Error(fmt.Sprintf("[%s] bad packet", addr))
+
+		}
+	}
+	log.Error(fmt.Sprintf("[%s] exhausted retries", addr))
+	return 0, errors.New("exhausted retries")
 }
