@@ -1,4 +1,4 @@
-package unixstreaming
+package echo
 
 import (
 	"context"
@@ -32,6 +32,7 @@ func StreamingEchoServer(ctx context.Context, network, addr string) (net.Addr, e
 					buf := make([]byte, 1024)
 					n, err := conn.Read(buf)
 					if err != nil {
+						log.Error(err)
 						return
 					}
 
@@ -50,4 +51,40 @@ func StreamingEchoServer(ctx context.Context, network, addr string) (net.Addr, e
 	s.Close()
 
 	return s.Addr(), nil
+}
+
+func DatagramEchoServer(ctx context.Context, network, addr string) error {
+	s, err := net.ListenPacket(network, addr)
+	if err != nil {
+		return err
+	}
+	err = os.Chmod(addr, os.ModeSocket|0666)
+	if err != nil {
+		return err
+	}
+
+	go func() {
+		buf := make([]byte, 1024)
+		for {
+			n, clientAddr, err := s.ReadFrom(buf)
+			if err != nil {
+				log.Error(err)
+				return
+			}
+
+			_, err = s.WriteTo(buf[:n], clientAddr)
+			if err != nil {
+				log.Error(err)
+				return
+			}
+		}
+	}()
+
+	log.Info(fmt.Sprintf("listening on %q ....", s.LocalAddr()))
+	<-ctx.Done()
+	s.Close()
+	if network == "unixgram" {
+		os.Remove(addr)
+	}
+	return nil
 }

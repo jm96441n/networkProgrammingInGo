@@ -1,10 +1,11 @@
-module github.com/jm96441n/networkProgrammingInGo/unixstreaming
+module github.com/jm96441n/networkProgrammingInGo/echo
 
 go 1.19
 
+require github.com/charmbracelet/log v0.1.2
+
 require (
 	github.com/charmbracelet/lipgloss v0.6.0 // indirect
-	github.com/charmbracelet/log v0.1.2 // indirect
 	github.com/go-logfmt/logfmt v0.6.0 // indirect
 	github.com/lucasb-eyer/go-colorful v1.2.0 // indirect
 	github.com/mattn/go-isatty v0.0.17 // indirect
