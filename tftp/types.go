@@ -273,6 +273,5 @@ func (e *Err) UnmarshalBinary(p []byte) error {
 	}
 
 	e.Message = strings.TrimRight(e.Message, "\x00")
-
 	return nil
 }
